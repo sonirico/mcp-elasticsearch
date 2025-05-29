@@ -17,13 +17,18 @@ type ElasticsearchHandler struct {
 }
 
 type IndexInfo struct {
-	Name         string `json:"name"`
+	Name         string `json:"index"`
 	Health       string `json:"health,omitempty"`
 	Status       string `json:"status,omitempty"`
-	DocsCount    string `json:"docs_count,omitempty"`
-	StoreSize    string `json:"store_size,omitempty"`
-	PrimaryCount string `json:"primary_count,omitempty"`
-	ReplicaCount string `json:"replica_count,omitempty"`
+	UUID         string `json:"uuid,omitempty"`
+	DocsCount    string `json:"docs.count,omitempty"`
+	DocsDeleted  string `json:"docs.deleted,omitempty"`
+	StoreSize    string `json:"store.size,omitempty"`
+	PrimarySize  string `json:"pri.store.size,omitempty"`
+	PrimaryCount string `json:"pri,omitempty"`
+	ReplicaCount string `json:"rep,omitempty"`
+	CreationDate string `json:"creation.date,omitempty"`
+	CreationTime string `json:"creation.date.string,omitempty"`
 }
 
 type SearchResponse struct {
@@ -105,7 +110,9 @@ func (h *ElasticsearchHandler) handleListIndices(
 		h.client.Cat.Indices.WithContext(ctx),
 		h.client.Cat.Indices.WithIndex(pattern),
 		h.client.Cat.Indices.WithFormat("json"),
-		h.client.Cat.Indices.WithH("index,health,status,docs.count,store.size,pri,rep"),
+		h.client.Cat.Indices.WithH(
+			"index,health,status,uuid,docs.count,docs.deleted,store.size,pri.store.size,pri,rep,creation.date,creation.date.string",
+		),
 	)
 	if err != nil {
 		h.logger.Error().Err(err).Str("pattern", pattern).Msg("Failed to list indices")
@@ -131,10 +138,15 @@ func (h *ElasticsearchHandler) handleListIndices(
 			"name":          idx.Name,
 			"health":        idx.Health,
 			"status":        idx.Status,
+			"uuid":          idx.UUID,
 			"docs_count":    idx.DocsCount,
+			"docs_deleted":  idx.DocsDeleted,
 			"store_size":    idx.StoreSize,
+			"primary_size":  idx.PrimarySize,
 			"primary_count": idx.PrimaryCount,
 			"replica_count": idx.ReplicaCount,
+			"creation_date": idx.CreationDate,
+			"creation_time": idx.CreationTime,
 		})
 	}
 
