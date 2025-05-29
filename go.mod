@@ -1,4 +1,4 @@
-module github.com/atani/infrastructure/apmentor/mcp-elasticsearch
+module github.com/sonirico/mcp-elasticsearch
 
 go 1.23.0
 
