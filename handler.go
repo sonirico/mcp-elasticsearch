@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
@@ -237,11 +236,6 @@ func (h *ElasticsearchHandler) handleSearch(
 	sourceString := request.GetString("_source", "")
 	highlightString := request.GetString("highlight", "")
 	trackTotalHits := request.GetBool("track_total_hits", true)
-	timeout, err := time.ParseDuration(request.GetString("timeout", ""))
-	if err != nil {
-		h.logger.Error().Err(err).Msg("Invalid timeout format")
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid timeout format: %v", err)), nil
-	}
 
 	h.logger.Info().
 		Str("index", index).
@@ -253,7 +247,6 @@ func (h *ElasticsearchHandler) handleSearch(
 		Str("_source", sourceString).
 		Str("highlight", highlightString).
 		Bool("track_total_hits", trackTotalHits).
-		Str("timeout", timeout.String()).
 		Msg("Executing search")
 
 	// Validate size and from parameters
@@ -297,11 +290,6 @@ func (h *ElasticsearchHandler) handleSearch(
 
 	if trackTotalHits {
 		searchRequest["track_total_hits"] = true
-	}
-
-	// Add timeout if specified
-	if timeout != 0 {
-		searchRequest["timeout"] = timeout
 	}
 
 	// Parse and add sort if provided
@@ -362,11 +350,6 @@ func (h *ElasticsearchHandler) handleSearch(
 		h.client.Search.WithBody(strings.NewReader(string(searchBody))),
 		h.client.Search.WithTrackTotalHits(trackTotalHits),
 		h.client.Search.WithPretty(),
-	}
-
-	// Add timeout option if specified
-	if timeout != 0 {
-		searchOptions = append(searchOptions, h.client.Search.WithTimeout(timeout))
 	}
 
 	// Execute search
