@@ -229,37 +229,73 @@ func (h *ElasticsearchHandler) handleSearch(
 
 	queryString := request.GetString("query", "{}")
 	size := request.GetInt("size", 10)
+	from := request.GetInt("from", 0)
 	sortString := request.GetString("sort", "")
+	aggsString := request.GetString("aggs", "")
+	sourceString := request.GetString("_source", "")
+	highlightString := request.GetString("highlight", "")
 	trackTotalHits := request.GetBool("track_total_hits", true)
+	timeout := request.GetString("timeout", "")
 
 	h.logger.Info().
 		Str("index", index).
 		Str("query", queryString).
 		Int("size", size).
+		Int("from", from).
 		Str("sort", sortString).
+		Str("aggs", aggsString).
+		Str("_source", sourceString).
+		Str("highlight", highlightString).
 		Bool("track_total_hits", trackTotalHits).
+		Str("timeout", timeout).
 		Msg("Executing search")
 
-	// Validate size parameter
+	// Validate size and from parameters
 	if size < 0 || size > 10000 {
 		return mcp.NewToolResultError("Size parameter must be between 0 and 10000"), nil
+	}
+	if from < 0 {
+		return mcp.NewToolResultError("From parameter must be >= 0"), nil
+	}
+	if from+size > 10000 {
+		return mcp.NewToolResultError("from + size must not exceed 10000"), nil
 	}
 
 	// Parse query JSON
 	var query map[string]any
-	if err := json.Unmarshal([]byte(queryString), &query); err != nil {
-		h.logger.Error().Err(err).Str("query", queryString).Msg("Invalid query JSON")
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid query JSON: %v", err)), nil
+	if queryString == "{}" || queryString == "" {
+		// Default to match_all query if empty
+		query = map[string]any{
+			"match_all": map[string]any{},
+		}
+	} else {
+		if err := json.Unmarshal([]byte(queryString), &query); err != nil {
+			h.logger.Error().Err(err).Str("query", queryString).Msg("Invalid query JSON")
+			return mcp.NewToolResultError(fmt.Sprintf("Invalid query JSON: %v", err)), nil
+		}
+
+		// Validate that query is not empty after parsing
+		if len(query) == 0 {
+			query = map[string]any{
+				"match_all": map[string]any{},
+			}
+		}
 	}
 
 	// Build search request
 	searchRequest := map[string]any{
 		"query": query,
 		"size":  size,
+		"from":  from,
 	}
 
 	if trackTotalHits {
 		searchRequest["track_total_hits"] = true
+	}
+
+	// Add timeout if specified
+	if timeout != "" {
+		searchRequest["timeout"] = timeout
 	}
 
 	// Parse and add sort if provided
@@ -272,6 +308,39 @@ func (h *ElasticsearchHandler) handleSearch(
 		searchRequest["sort"] = sort
 	}
 
+	// Parse and add aggregations if provided
+	if aggsString != "" {
+		var aggs map[string]any
+		if err := json.Unmarshal([]byte(aggsString), &aggs); err != nil {
+			h.logger.Error().Err(err).Str("aggs", aggsString).Msg("Invalid aggregations JSON")
+			return mcp.NewToolResultError(fmt.Sprintf("Invalid aggregations JSON: %v", err)), nil
+		}
+		searchRequest["aggs"] = aggs
+	}
+
+	// Parse and add _source if provided
+	if sourceString != "" {
+		var source any
+		if err := json.Unmarshal([]byte(sourceString), &source); err != nil {
+			h.logger.Error().Err(err).Str("_source", sourceString).Msg("Invalid _source JSON")
+			return mcp.NewToolResultError(fmt.Sprintf("Invalid _source JSON: %v", err)), nil
+		}
+		searchRequest["_source"] = source
+	}
+
+	// Parse and add highlight if provided
+	if highlightString != "" {
+		var highlight map[string]any
+		if err := json.Unmarshal([]byte(highlightString), &highlight); err != nil {
+			h.logger.Error().
+				Err(err).
+				Str("highlight", highlightString).
+				Msg("Invalid highlight JSON")
+			return mcp.NewToolResultError(fmt.Sprintf("Invalid highlight JSON: %v", err)), nil
+		}
+		searchRequest["highlight"] = highlight
+	}
+
 	// Convert to JSON
 	searchBody, err := json.Marshal(searchRequest)
 	if err != nil {
@@ -281,14 +350,22 @@ func (h *ElasticsearchHandler) handleSearch(
 
 	h.logger.Debug().RawJSON("search_body", searchBody).Msg("Search request body")
 
-	// Execute search
-	res, err := h.client.Search(
+	// Build search options
+	searchOptions := []func(*elasticsearch.SearchRequest){
 		h.client.Search.WithContext(ctx),
 		h.client.Search.WithIndex(index),
 		h.client.Search.WithBody(strings.NewReader(string(searchBody))),
 		h.client.Search.WithTrackTotalHits(trackTotalHits),
 		h.client.Search.WithPretty(),
-	)
+	}
+
+	// Add timeout option if specified
+	if timeout != "" {
+		searchOptions = append(searchOptions, h.client.Search.WithTimeout(timeout))
+	}
+
+	// Execute search
+	res, err := h.client.Search(searchOptions...)
 	if err != nil {
 		h.logger.Error().Err(err).Str("index", index).Msg("Failed to execute search")
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to execute search: %v", err)), nil
@@ -317,10 +394,16 @@ func (h *ElasticsearchHandler) handleSearch(
 		"max_score":  searchResponse.Hits.MaxScore,
 		"hits":       searchResponse.Hits.Hits,
 		"shards":     searchResponse.Shards,
+		"from":       from,
+		"size":       size,
 	}
 
+	// Add aggregations to response if present
 	if searchResponse.Aggregations != nil && len(searchResponse.Aggregations) > 0 {
 		response["aggregations"] = searchResponse.Aggregations
+		h.logger.Debug().
+			Int("agg_count", len(searchResponse.Aggregations)).
+			Msg("Aggregations found in response")
 	}
 
 	jsonBytes, err := json.Marshal(response)
@@ -334,6 +417,7 @@ func (h *ElasticsearchHandler) handleSearch(
 		Int("total_hits", searchResponse.Hits.Total.Value).
 		Int("returned_hits", len(searchResponse.Hits.Hits)).
 		Int("took_ms", searchResponse.Took).
+		Int("agg_count", len(searchResponse.Aggregations)).
 		Msg("Search executed successfully")
 
 	return mcp.NewToolResultText(string(jsonBytes)), nil

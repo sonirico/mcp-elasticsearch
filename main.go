@@ -96,12 +96,40 @@ func run() error {
 			mcp.DefaultNumber(10),
 			mcp.Description("Maximum number of documents to return (0-10000)"),
 		),
-		mcp.WithString(
-			"sort",
+		mcp.WithNumber("from",
+			mcp.DefaultNumber(0),
+			mcp.Description("Offset from the first result (for pagination)"),
+		),
+		mcp.WithString("sort",
 			mcp.DefaultString(""),
 			mcp.Description(
 				"Sort specification as JSON string (e.g., '[{\"@timestamp\": {\"order\": \"desc\"}}]')",
 			),
+		),
+		mcp.WithString(
+			"aggs",
+			mcp.DefaultString(""),
+			mcp.Description(
+				"Aggregations specification as JSON string (e.g., '{\"avg_price\": {\"avg\": {\"field\": \"price\"}}}')",
+			),
+		),
+		mcp.WithString(
+			"_source",
+			mcp.DefaultString(""),
+			mcp.Description(
+				"Source filtering as JSON string (e.g., '[\"field1\", \"field2\"]' or '{\"includes\": [\"field1\"], \"excludes\": [\"field2\"]}')",
+			),
+		),
+		mcp.WithString(
+			"highlight",
+			mcp.DefaultString(""),
+			mcp.Description(
+				"Highlight specification as JSON string (e.g., '{\"fields\": {\"title\": {}}}')",
+			),
+		),
+		mcp.WithString("timeout",
+			mcp.DefaultString(""),
+			mcp.Description("Search timeout (e.g., '30s', '1m')"),
 		),
 		mcp.WithBoolean("track_total_hits",
 			mcp.DefaultBool(true),
